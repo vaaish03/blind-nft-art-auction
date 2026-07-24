@@ -1,0 +1,8 @@
+{
+  "network": "preprod",
+  "contract": "blind_auction",
+  "contractAddress": "75fc78b6a36688bce8f0326d69eedb798a5b24f275c355454e27a1c2a7c03024",
+  "transactionHash": "c620c1e3708e1e7093dec838e315f889e2050daab10eb82098d28b3ad39ed4b6",
+  "transactionId": 498539,
+  "verifiedBy": "Midnight Preprod indexer"
+}
