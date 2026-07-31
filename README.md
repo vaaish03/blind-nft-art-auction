@@ -1,5 +1,7 @@
 # Blind NFT Art Auction Room
 
+![Frontend CI](https://github.com/vaaish03/blind-nft-art-auction/actions/workflows/frontend-ci.yml/badge.svg?branch=main) ![Contract CI](https://github.com/vaaish03/blind-nft-art-auction/actions/workflows/contract-ci.yml/badge.svg?branch=main)
+
 A gallery-style commit–reveal auction for collectors who want private bidding and a verifiable winner.
 
 ## Gallery experience
@@ -59,3 +61,6 @@ Frontend CI checks the production build; contract CI recompiles and tests the Co
 
 Demo: [visit the gallery auction walkthrough](https://drive.google.com/file/d/14DGE5vCvNDe4mkFjSuvGq6Wy2gZKy09v/view?usp=sharing).
 
+## Verification
+
+Privacy is the product feature: collector bid amounts remain hidden through commitment, while only the permitted reveal and winning state are public. Run `npm test`, `npm run compile`, and `npm run build`; the six contract scenarios are documented in [TESTING.md](./TESTING.md), the product scope is in [PROPOSAL.md](./PROPOSAL.md), and both CI workflows run on every push and pull request.
