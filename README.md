@@ -27,17 +27,21 @@ The `blind_auction` Compact contract exposes:
 
 The ledger records phase, commitments, highest bid, winner, and administrator state. Losing bids and salts remain private.
 
-## Live Preprod coordinates
+## Live Preview coordinates
 
 | Field | Value |
 | --- | --- |
-| Network | Midnight Preprod |
+| Network | Midnight Preview |
 | Contract | `blind_auction` |
-| Address | `75fc78b6a36688bce8f0326d69eedb798a5b24f275c355454e27a1c2a7c03024` |
-| Deployment transaction | `c620c1e3708e1e7093dec838e315f889e2050daab10eb82098d28b3ad39ed4b6` |
-| Status | Confirmed by Midnight Preprod indexer |
+| Address | `762c643cdc619989b4eaf1ce8d9e48ab234112229a32d73496e641b1ff405659` |
+| Deployment transaction | `004b0e9d6b5e63e1234c170e9c8fc3aa8d132e873e737690abbce93f9bd0642626` |
+| Gallery deployer | `mn_addr_preview17kavjqm9qqqnvm32ns9jr2j35m8r3naqz0k2x936mwt8wmg7x0nsk94maa` |
+| Opened on-chain | `2026-08-03T19:11:57.338Z` |
+| Status | Confirmed by Midnight Preview indexer |
 
 ## Try the project
+
+Collector test wallets can be funded from the [Preview faucet](https://faucet.preview.midnight.network/).
 
 ```bash
 npm install
