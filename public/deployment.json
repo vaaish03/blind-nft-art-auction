@@ -1,0 +1,9 @@
+{
+  "network": "preview",
+  "contract": "blind_auction",
+  "contractAddress": "762c643cdc619989b4eaf1ce8d9e48ab234112229a32d73496e641b1ff405659",
+  "transactionHash": "004b0e9d6b5e63e1234c170e9c8fc3aa8d132e873e737690abbce93f9bd0642626",
+  "deployer": "mn_addr_preview17kavjqm9qqqnvm32ns9jr2j35m8r3naqz0k2x936mwt8wmg7x0nsk94maa",
+  "deployedAt": "2026-08-03T19:11:57.338Z",
+  "verifiedBy": "Midnight Preview indexer"
+}
