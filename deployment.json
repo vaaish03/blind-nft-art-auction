@@ -1,4 +1,5 @@
 {
+  "contractName": "blind_auction",
   "contractAddress": "762c643cdc619989b4eaf1ce8d9e48ab234112229a32d73496e641b1ff405659",
   "network": "preview",
   "deployedAt": "2026-08-03T19:11:57.338Z",
