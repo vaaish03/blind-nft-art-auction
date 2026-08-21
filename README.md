@@ -4,6 +4,13 @@
 
 A gallery-style commit–reveal auction for collectors who want private bidding and a verifiable winner.
 
+## Collector preview catalogue
+
+- Lot thesis and market need — [PROPOSAL.md](./PROPOSAL.md)
+- Six auction behaviors — [blind.test.ts](./src/test/blind.test.ts)
+- Curator’s test checklist — [TESTING.md](./TESTING.md)
+- On-chain provenance — [deployment.json](./deployment.json)
+
 ## Gallery experience
 
 The app presents a single featured lot with an auction state that is easy to read:

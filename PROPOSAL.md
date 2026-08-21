@@ -1,5 +1,9 @@
 # Product Proposal: Blind NFT Art Auction Room
 
+**Category:** Tokenized assets  
+**Gallery owner:** `vaaish03`  
+**Exhibition state:** Live Preview MVP
+
 ## Problem
 
 Collectors need a fair auction where bids remain sealed until the reveal phase.
@@ -25,4 +29,3 @@ Auction phase and winning result are public. Losing bid amounts, salts, and unre
 - Invalid reveals fail.
 - Higher valid bids replace the current winner.
 - Closed auctions cannot accept new commitments.
-
