@@ -75,3 +75,7 @@ Demo: [visit the gallery auction walkthrough](https://drive.google.com/file/d/14
 ## Verification
 
 Privacy is the product feature: collector bid amounts remain hidden through commitment, while only the permitted reveal and winning state are public. Run `npm test`, `npm run compile`, and `npm run build`; the six contract scenarios are documented in [TESTING.md](./TESTING.md), the product scope is in [PROPOSAL.md](./PROPOSAL.md), and both CI workflows run on every push and pull request.
+
+## Gallery auction safety
+
+Before operating Blind NFT Art Auction, read the independent [security model](SECURITY.md) and [operations runbook](OPERATIONS.md). Runtime configuration is fail-closed and its executable checks live in [src/test/runtime-config.test.ts](src/test/runtime-config.test.ts).
