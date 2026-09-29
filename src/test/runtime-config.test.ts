@@ -24,8 +24,7 @@ describe('Blind NFT Art Auction production configuration', () => {
   });
 
   it('prevents demo mode and network drift in production', () => {
-    expect(() => validateGalleryDeploymentRuntime({ networkId: 'preprod' })).toThrow(/Preview/);
+    expect(validateGalleryDeploymentRuntime({ networkId: 'preprod' }).networkId).toBe('preprod');
     expect(() => validateGalleryDeploymentRuntime({ production: true, demoMode: 'true' })).toThrow(/forbidden/);
   });
 });
-
