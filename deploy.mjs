@@ -21,13 +21,16 @@ import { WebSocket } from 'ws';
 
 globalThis.WebSocket = WebSocket;
 
-// CONFIGURATION (Preview network; override only for an isolated local devnet)
-const NETWORK_ID = 'preview';
+const projectDir = path.dirname(new URL(import.meta.url).pathname);
+
+// CONFIGURATION (Configurable for Preview or Preprod)
+const NETWORK_ID = process.env.MIDNIGHT_NETWORK_ID || 'preview';
+const isPreprod = NETWORK_ID === 'preprod';
 const ACCOUNT_INDEX = 11;
-const INDEXER = 'https://indexer.preview.midnight.network/api/v4/graphql';
-const INDEXER_WS = 'wss://indexer.preview.midnight.network/api/v4/graphql/ws';
-const NODE = 'https://rpc.preview.midnight.network';
-const PROOF_SERVER = 'http://127.0.0.1:6300';
+const INDEXER = isPreprod ? 'https://indexer.preprod.midnight.network/api/v4/graphql' : 'https://indexer.preview.midnight.network/api/v3/graphql';
+const INDEXER_WS = isPreprod ? 'wss://indexer.preprod.midnight.network/api/v4/graphql/ws' : 'wss://indexer.preview.midnight.network/api/v3/graphql/ws';
+const NODE = isPreprod ? 'https://rpc.preprod.midnight.network' : 'https://rpc.preview.midnight.network';
+const PROOF_SERVER = process.env.MIDNIGHT_PROOF_SERVER || 'http://127.0.0.1:6300';
 
 const blindAuctionWitnesses = {
   localSecretKey: ({ privateState }) => [privateState, privateState.secretKey],
@@ -48,13 +51,13 @@ if (files.length === 0) {
   process.exit(1);
 }
 const walletData = JSON.parse(fs.readFileSync(path.join(walletDir, files[0]), 'utf8'));
-console.log(`Using wallet profile: ${walletData.name} | Preview account: ${ACCOUNT_INDEX}`);
+console.log(`Using wallet profile: ${walletData.name} | Preprod account: ${ACCOUNT_INDEX}`);
 
 async function deploy() {
   setNetworkId(NETWORK_ID);
 
   // Load compiled contract
-  const zkConfigPath = path.resolve('contracts', 'managed', 'blind_auction');
+  const zkConfigPath = path.resolve(projectDir, 'contracts', 'managed', 'blind_auction');
   const contractModule = await import(path.resolve(zkConfigPath, 'contract', 'index.js'));
   const compiledContract = CompiledContract.make('blind_auction', contractModule.Contract).pipe(
     CompiledContract.withWitnesses(blindAuctionWitnesses),
@@ -77,7 +80,7 @@ async function deploy() {
     indexerClientConnection: { indexerHttpUrl: INDEXER, indexerWsUrl: INDEXER_WS },
     provingServerUrl: new URL(PROOF_SERVER),
     relayURL: new URL(NODE.replace(/^http/, 'ws')),
-    costParameters: { additionalFeeOverhead: 300_000_000_000_000n, feeBlocksMargin: 5 },
+    costParameters: { additionalFeeOverhead: 1_000n, feeBlocksMargin: 5 },
     txHistoryStorage: new InMemoryTransactionHistoryStorage(),
   };
 
@@ -90,11 +93,26 @@ async function deploy() {
   });
   
   await wallet.start(shieldedSecretKeys, dustSecretKey);
-  console.log('Wallet started. Syncing ledger...');
+  console.log('Wallet started. Syncing ledger with bounded timeout...');
 
-  // Wait for wallet to sync
-  await Rx.firstValueFrom(wallet.state().pipe(Rx.throttleTime(5000), Rx.filter(isWalletReady)));
-  console.log('Wallet synced.');
+  // Wait for wallet to sync with bounded timeout
+  const SYNC_TIMEOUT_MS = 25_000;
+  try {
+    await Rx.firstValueFrom(
+      wallet.state().pipe(
+        Rx.throttleTime(5000),
+        Rx.filter(isWalletReady),
+        Rx.timeout({
+          first: SYNC_TIMEOUT_MS,
+          with: () => Rx.throwError(() => new Error(`Wallet synchronization timed out after ${SYNC_TIMEOUT_MS / 1000}s. The public RPC closed or wallet is waiting for synchronization.`)),
+        }),
+      ),
+    );
+    console.log('Wallet synced.');
+  } catch (syncErr) {
+    await wallet.stop().catch(() => {});
+    throw new Error(`Wallet synchronization failed before deployment: ${syncErr.message}`);
+  }
 
   let state = await Rx.firstValueFrom(wallet.state().pipe(Rx.filter(isWalletReady)));
   const balance = state.unshielded.balances[ledger.unshieldedToken().raw] ?? 0n;
@@ -171,7 +189,9 @@ async function deploy() {
   console.log(`Address: ${contractAddress}`);
   console.log(`Network: ${NETWORK_ID}`);
 
-  fs.writeFileSync('deployment.json', JSON.stringify({
+  const outPath = path.resolve(projectDir, 'deployment.json');
+  const pubPath = path.resolve(projectDir, 'public', 'deployment.json');
+  fs.writeFileSync(outPath, JSON.stringify({
     contractName: 'blind_auction',
     contractAddress,
     network: NETWORK_ID,
@@ -179,7 +199,8 @@ async function deploy() {
     deployer: deployerAddress,
     transactionHash,
   }, null, 2));
-  console.log('Saved deployment details to deployment.json');
+  fs.copyFileSync(outPath, pubPath);
+  console.log(`Saved deployment details to ${outPath} and ${pubPath}`);
   
   await wallet.stop();
   process.exit(0);
