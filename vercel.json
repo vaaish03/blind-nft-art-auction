@@ -1,6 +1,6 @@
 {
   "cleanUrls": true,
-  "alias": "vaish-bqt1.vercel.app",
+  "alias": "art-auction-ashen.vercel.app",
   "buildCommand": "npm run build",
   "outputDirectory": "dist"
 }
