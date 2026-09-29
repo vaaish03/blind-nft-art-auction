@@ -1,7 +1,16 @@
-import { useState, useEffect } from 'react';
-import { Gavel, Clock, Lock, Database, Wallet, Cpu, History } from 'lucide-react';
-import { submitBlindauctionCircuit } from './midnightClient';
-import { verifyGalleryDeployment, validateGalleryDeploymentRuntime } from './runtimeConfig';
+import OperatorSetup from './OperatorSetup';
+import { useState, useEffect } from "react";
+import {
+  deployBlindauctionContract,
+  blindBytes32,
+  blindCommitment,
+  readBlindLedger,
+  submitBlindauctionCircuit,
+} from "./midnightClient";
+import {
+  verifyGalleryDeployment,
+  validateGalleryDeploymentRuntime,
+} from "./runtimeConfig";
 
 const RUNTIME = validateGalleryDeploymentRuntime({
   networkId: import.meta.env.VITE_NETWORK_ID,
@@ -12,12 +21,31 @@ const RUNTIME = validateGalleryDeploymentRuntime({
 });
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const readRoute = () => {
+    const route = window.location.hash.slice(1);
+    return ["dashboard", "deployer", "walletHub", "privacy"].includes(route)
+      ? route
+      : "home";
+  };
+  const [activeTab, setActiveTab] = useState(readRoute);
+  useEffect(() => {
+    const onRoute = () => {
+      if (["#content", "#main-content"].includes(window.location.hash)) return;
+      setActiveTab(readRoute());
+      window.scrollTo(0, 0);
+    };
+    window.addEventListener("hashchange", onRoute);
+    return () => window.removeEventListener("hashchange", onRoute);
+  }, []);
+  useEffect(() => {
+    document.getElementById("page-title")?.focus();
+  }, [activeTab]);
+  const [feedback, setFeedback] = useState("");
+  const [showSecrets, setShowSecrets] = useState(false);
   const [walletConnected, setWalletConnected] = useState(false);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [walletBalance, setWalletBalance] = useState<string>("0.00");
   const [connectingWallet, setConnectingWallet] = useState(false);
-  const [faucetLoading, setFaucetLoading] = useState(false);
   const [laceDetected, setLaceDetected] = useState(false);
   const [connectedWallet, setConnectedWallet] = useState<any>(null);
 
@@ -25,49 +53,61 @@ export default function App() {
   const [contractAddress, setContractAddress] = useState<string | null>(null);
   const [runtimeIssue, setRuntimeIssue] = useState<string | null>(null);
   const [isDeploying, setIsDeploying] = useState(false);
-  const [deployStep, setDeployStep] = useState(0);
 
-  const [ledger, setLedger] = useState({ bid_commitments: 8, phase: "BLIND_BIDDING", winning_threshold: 0 });
-  const [formValues, setFormValues] = useState({ blind_bid: 1200, bidder_salt: "" });
+  const [ledger, setLedger] = useState<{
+    bid_commitments: number | null;
+    phase: string;
+    winning_threshold: number;
+  }>({ bid_commitments: null, phase: "", winning_threshold: 0 });
+  const [formValues, setFormValues] = useState({
+    blind_bid: 175,
+    bidder_secret: "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c",
+    bidder_salt: "2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c",
+  });
   const [logs, setLogs] = useState<any[]>([]);
   const [isProving, setIsProving] = useState(false);
-  const [provingStep, setProvingStep] = useState(0);
-
-  const proofSteps = [
-    "Hashing blind bid parameters...",
-    "Verifying bidding duration compliance...",
-    "Registering cryptographic blind commitment on-chain...",
-    "Emitting bid validation proof..."
-  ];
-
-  const deploySteps = [
-    "Compiling blind_auction.compact contract code...",
-    "Deploying ZK state registry...",
-    "Publishing auction block reference..."
-  ];
 
   useEffect(() => {
-    fetch('/deployment.json')
-      .then(response => {
-        if (!response.ok) throw new Error('Blind NFT Art Auction: deployment.json could not be loaded.');
+    fetch("/deployment.json")
+      .then((response) => {
+        if (!response.ok)
+          throw new Error(
+            "Blind NFT Art Auction: deployment.json could not be loaded.",
+          );
         return response.json();
       })
-      .then(deployment => {
+      .then((deployment) => {
         const verified = verifyGalleryDeployment(deployment);
-        if (RUNTIME.contractAddress && RUNTIME.contractAddress !== verified.contractAddress) {
-          throw new Error('Blind NFT Art Auction: environment address does not match deployment evidence.');
+        if (
+          RUNTIME.contractAddress &&
+          RUNTIME.contractAddress !== verified.contractAddress
+        ) {
+          throw new Error(
+            "Blind NFT Art Auction: environment address does not match deployment evidence.",
+          );
         }
-        setContractAddress(verified.contractAddress);
-        setContractDeployed(true);
+        if (verified.network === RUNTIME.networkId) {
+          setContractAddress(verified.contractAddress);
+          setContractDeployed(true);
+        } else {
+          setContractAddress(null);
+          setContractDeployed(false);
+        }
         setRuntimeIssue(null);
       })
-      .catch(error => {
+      .catch((error) => {
         setContractAddress(null);
         setContractDeployed(false);
-        setRuntimeIssue(error instanceof Error ? error.message : 'Blind NFT Art Auction: configuration failed.');
+        setRuntimeIssue(
+          error instanceof Error
+            ? error.message
+            : "Blind NFT Art Auction: configuration failed.",
+        );
       });
     const detectLace = () => {
-      const hasMidnightWallet = Object.values((window as any).midnight ?? {}).some((candidate: any) => typeof candidate?.connect === 'function');
+      const hasMidnightWallet = Object.values(
+        (window as any).midnight ?? {},
+      ).some((candidate: any) => typeof candidate?.connect === "function");
       setLaceDetected(hasMidnightWallet);
     };
     detectLace();
@@ -78,13 +118,25 @@ export default function App() {
   const connectLace = async () => {
     setConnectingWallet(true);
     try {
-      const candidates = Object.values((window as any).midnight ?? {}) as Array<{
+      const candidates = Object.values(
+        (window as any).midnight ?? {},
+      ) as Array<{
         connect?: (networkId: string) => Promise<any>;
         name?: string;
+        rdns?: string;
       }>;
-      const wallet = candidates.find(candidate => typeof candidate.connect === 'function');
+      const oneAm = candidates.find(
+        (c) =>
+          /1am/i.test(`${c.name ?? ""} ${c.rdns ?? ""}`) &&
+          typeof c.connect === "function",
+      );
+      const wallet =
+        oneAm ??
+        candidates.find((candidate) => typeof candidate.connect === "function");
       if (!wallet?.connect) {
-        throw new Error('No Midnight wallet connector was detected. Install 1AM or Lace and unlock it.');
+        throw new Error(
+          "No Midnight wallet connector was detected. Install 1AM or Lace and unlock it.",
+        );
       }
 
       const connected = await wallet.connect(RUNTIME.networkId);
@@ -101,272 +153,615 @@ export default function App() {
         setContractAddress(import.meta.env.VITE_CONTRACT_ADDRESS);
         setContractDeployed(true);
       }
-      logTransaction('wallet', 'MIDNIGHT WALLET CONNECTED', '—', 'Connected through the Midnight DApp Connector API');
+      logTransaction(
+        "wallet",
+        "MIDNIGHT WALLET CONNECTED",
+        "—",
+        "Connected through the Midnight DApp Connector API",
+      );
     } catch (err) {
-      console.error('Midnight wallet connection failed:', err);
-      alert(err instanceof Error ? err.message : 'Midnight wallet connection failed.');
+      console.error("Midnight wallet connection failed:", err);
+      const raw = err instanceof Error ? err.message : String(err || "");
+      const msg = (raw.includes("tabs:outgoing.message.ready") || raw.includes("No Listener")) ? "Wallet extension is asleep or locked. Please open and unlock your 1AM / Lace wallet extension, then retry." : (raw || "Midnight wallet connection failed.");
+      setFeedback(msg);
     } finally {
       setConnectingWallet(false);
     }
   };
 
-
-
   const disconnectLace = () => {
     setWalletConnected(false);
     setWalletAddress(null);
     setWalletBalance("0.00");
-    logTransaction('0x0000...0000', 'LACE WALLET DISCONNECTED', '0.00 tNIGHT', 'Disconnected wallet context');
+    logTransaction(
+      "0x0000...0000",
+      "1AM WALLET DISCONNECTED",
+      "0.00 tNIGHT",
+      "Disconnected wallet context",
+    );
   };
 
   const requestFaucet = () => {
     if (!walletConnected) return;
-    window.open(RUNTIME.faucetUrl, '_blank', 'noopener,noreferrer');
-    logTransaction('—', 'FAUCET OPENED', '—', 'Funding must be confirmed by the official Midnight Preview faucet and wallet balance refresh.');
+    window.open(RUNTIME.faucetUrl, "_blank", "noopener,noreferrer");
+    logTransaction(
+      "—",
+      "FAUCET OPENED",
+      "—",
+      "Funding must be confirmed by the official Midnight Preview faucet and wallet balance refresh.",
+    );
   };
 
   const deployContractAction = async () => {
-    if (!contractAddress || runtimeIssue) {
-      alert('Blind NFT Art Auction: no verified Preview deployment is available.');
+    if (!connectedWallet) {
+      setFeedback("Connect a Midnight wallet before deploying.");
       return;
     }
-    setContractDeployed(true);
-    logTransaction('—', 'VERIFIED DEPLOYMENT ATTACHED', '—', `Using finalized Preview contract ${contractAddress}`);
+    setIsDeploying(true);
+    try {
+      const result = await deployBlindauctionContract(connectedWallet);
+      setContractAddress(result.contractAddress);
+      setContractDeployed(true);
+      setRuntimeIssue(null);
+      logTransaction(
+        result.txId,
+        "CONFIRMED ON MIDNIGHT",
+        "—",
+        `Fresh ${RUNTIME.networkId} deployment ${result.contractAddress}`,
+      );
+    } catch (error) {
+      setFeedback(
+        error instanceof Error ? error.message : "Contract deployment failed.",
+      );
+    } finally {
+      setIsDeploying(false);
+    }
   };
 
-  const submitBlindBid = async () => {
+  const submitBlindBid = async (circuit: 'submitCommitment' | 'revealBid' = 'submitCommitment') => {
     if (!walletConnected || !contractDeployed || !contractAddress) return;
     try {
-      const result = await submitBlindauctionCircuit((window as any).__midnightConnectedWallet, contractAddress, 'submitCommitment', [new TextEncoder().encode(`bid:${formValues.blind_bid}:salt:${formValues.bidder_salt}`)]);
-      setLedger(prev => ({ ...prev, bid_commitments: prev.bid_commitments + 1 }));
-      logTransaction(result.txId, 'CONFIRMED ON MIDNIGHT', '—', 'Confirmed submitCommitment on ' + contractAddress);
+      const privateState = {
+        secretKey: blindBytes32(formValues.bidder_secret, "Bidder secret"),
+        bidAmount: BigInt(formValues.blind_bid),
+        bidSalt: blindBytes32(formValues.bidder_salt, "Bid salt"),
+      };
+      const result = await submitBlindauctionCircuit(
+        (window as any).__midnightConnectedWallet,
+        contractAddress,
+        circuit,
+        circuit === 'submitCommitment' ? [blindCommitment(privateState)] : [],
+        privateState,
+      );
+      const chain = await readBlindLedger(
+        (window as any).__midnightConnectedWallet,
+        contractAddress,
+      );
+      setLedger({
+        bid_commitments: chain.commitmentCount,
+        phase: chain.phase,
+        winning_threshold: chain.highestBid,
+      });
+      logTransaction(
+        result.txId,
+        "CONFIRMED ON MIDNIGHT",
+        "—",
+        "Confirmed " + circuit + " on " + contractAddress,
+      );
       return;
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'The Midnight transaction failed.');
-      logTransaction('—', 'TRANSACTION FAILED', '—', err instanceof Error ? err.message : 'Unknown transaction failure');
+      setFeedback(
+        err instanceof Error ? err.message : "The Midnight transaction failed.",
+      );
+      logTransaction(
+        "—",
+        "TRANSACTION FAILED",
+        "—",
+        err instanceof Error ? err.message : "Unknown transaction failure",
+      );
       return;
     }
-
   };
 
-  const logTransaction = (hash: string, status: string, fee: string, details: string) => {
-    setLogs(prev => [
+  const logTransaction = (
+    hash: string,
+    status: string,
+    fee: string,
+    details: string,
+  ) => {
+    setLogs((prev) => [
       {
         hash,
-        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+        timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
         status,
         fee,
-        details
+        details,
       },
-      ...prev
+      ...prev,
     ]);
   };
 
-  if (runtimeIssue) {
-    return (
-      <main role="alert" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: '32px', background: '#080b12', color: '#f8fafc' }}>
-        <section style={{ width: 'min(620px, 100%)', border: '1px solid #ef4444', borderRadius: '18px', padding: '28px', background: '#151922' }}>
-          <p style={{ margin: 0, color: '#fca5a5', fontWeight: 800, letterSpacing: '0.08em' }}>SAFE START BLOCKED</p>
-          <h1 style={{ margin: '12px 0', fontSize: 'clamp(1.7rem, 5vw, 2.6rem)' }}>Blind NFT Art Auction</h1>
-          <p style={{ lineHeight: 1.65, color: '#cbd5e1' }}>{runtimeIssue}</p>
-          <p style={{ lineHeight: 1.65, color: '#94a3b8' }}>No wallet or contract operation was attempted. Restore this repository's own Preview deployment record, then reload.</p>
-          <button onClick={() => window.location.reload()} style={{ marginTop: '8px', padding: '12px 18px', border: 0, borderRadius: '10px', fontWeight: 800, cursor: 'pointer' }}>Retry configuration</button>
-        </section>
-      </main>
-    );
-  }
+  const hasRead = logs.some(
+    (log) =>
+      log.status === "CONFIRMED ON MIDNIGHT" &&
+      log.details.startsWith("Confirmed "),
+  );
+  const ready = walletConnected && contractDeployed && !runtimeIssue;
+  const pageNames: Record<string, string> = {
+    dashboard: "Commit a sealed bid",
+    deployer: "Contract setup",
+    walletHub: "Wallet & activity",
+    privacy: "Privacy & scope",
+  };
 
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto', fontFamily: 'Outfit, sans-serif' }}>
-      
-      {/* Header */}
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 0', borderBottom: '1px solid var(--border-color)', marginBottom: '30px' }}>
-        <div>
-          <span style={{ padding: '4px 10px', fontSize: '0.75rem', borderRadius: '20px', background: 'rgba(255, 255, 255, 0.08)', color: '#fafafa', border: '1px solid rgba(255, 255, 255, 0.2)', fontWeight: 600 }}>Project 11</span>
-          <h1 style={{ fontSize: '2rem', fontWeight: 'bold', marginTop: '6px' }}>Blind NFT Art Auction Room</h1>
-        </div>
-        <div>
-          {walletConnected ? (
-            <div style={{ background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '12px', padding: '8px 16px' }}>
-              Balance: <strong style={{ color: '#fafafa' }}>{walletBalance} tNIGHT</strong>
-            </div>
-          ) : (
-            <button onClick={connectLace} style={{ width: 'auto' }}>Connect Lace Wallet</button>
-          )}
-        </div>
+    <div className="app">
+      <a
+        className="skip-link"
+        href="#content"
+        onClick={(e) => {
+          e.preventDefault();
+          document.getElementById("content")?.focus();
+        }}
+      >
+        Skip to content
+      </a>
+      <header className="site-header">
+        <a className="brand" href="#home">
+          Sealed / Auction
+        </a>
+        <nav aria-label="Primary navigation">
+          <a
+            href="#home"
+            aria-current={activeTab === "home" ? "page" : undefined}
+          >
+            About
+          </a>
+          <a
+            href="#privacy"
+            aria-current={activeTab === "privacy" ? "page" : undefined}
+          >
+            Privacy
+          </a>
+          <a className="button-link" href="#dashboard">
+            Enter bidding room <span aria-hidden="true">↗</span>
+          </a>
+        </nav>
       </header>
-
-<section className="home-dashboard" aria-labelledby="home-dashboard-title">
-        <div className="home-dashboard__lead">
-          <span className="home-kicker">Gallery auction</span>
-          <h2 id="home-dashboard-title">Lot 001 · Night Bloom</h2>
-          <p>Commit a private art bid with a salt only you control.</p>
-          <div className="home-actions">
-            <button type="button" onClick={() => setActiveTab('dashboard')}>Open Workspace</button>
-            <button type="button" className="home-secondary" onClick={() => setActiveTab('privacy')}>Read Privacy Model</button>
-          </div>
-        </div>
-        <div className="home-dashboard__grid">
-          <article className="home-card"><span>Network</span><strong>Midnight Preview</strong><small>{contractDeployed ? 'Contract verified' : 'Contract setup pending'}</small></article>
-          <article className="home-card"><span>Current signal</span><strong>Bidding phase live</strong><small>Winner revealed later</small></article>
-          <article className="home-card"><span>Wallet session</span><strong>{walletConnected ? 'Connected' : 'Not connected'}</strong><small>{walletConnected ? walletBalance + ' tNIGHT available' : 'Connect 1AM to continue'}</small></article>
-          <article className="home-card"><span>Contract address</span><strong className="home-address">{contractAddress ? contractAddress.slice(0, 14) + '…' : 'Awaiting deployment'}</strong><small>Unique project deployment</small></article>
-        </div>
-      </section>
-
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '30px', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px' }}>
-        <button onClick={() => setActiveTab('dashboard')} style={{ width: 'auto', padding: '10px 20px', background: activeTab === 'dashboard' ? 'var(--color-primary)' : 'transparent', color: activeTab === 'dashboard' ? '#0a0a0c' : 'var(--text-secondary)', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>🖼️ Art Bid Committer</button>
-        <button onClick={() => setActiveTab('deployer')} style={{ width: 'auto', padding: '10px 20px', background: activeTab === 'deployer' ? 'var(--color-primary)' : 'transparent', color: activeTab === 'deployer' ? '#0a0a0c' : 'var(--text-secondary)', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>🎨 Art Auction Deployer</button>
-        <button onClick={() => setActiveTab('walletHub')} style={{ width: 'auto', padding: '10px 20px', background: activeTab === 'walletHub' ? 'var(--color-primary)' : 'transparent', color: activeTab === 'walletHub' ? '#0a0a0c' : 'var(--text-secondary)', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>💰 Patron Wallet</button>
-        <button onClick={() => setActiveTab('privacy')} style={{ width: 'auto', padding: '10px 20px', background: activeTab === 'privacy' ? 'var(--color-primary)' : 'transparent', color: activeTab === 'privacy' ? '#0a0a0c' : 'var(--text-secondary)', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>🔒 Blind Bid Privacy Model</button>
-      </div>
-
-      <main style={{ minHeight: '400px' }}>
-        {activeTab === 'dashboard' && (
-          <div>
-            {(!walletConnected || !contractDeployed) && (
-              <div style={{ background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239,68,68,0.2)', padding: '20px', borderRadius: '12px', marginBottom: '30px', textAlign: 'center' }}>
-                <h3 style={{ margin: 0, color: '#f87171' }}>⚠️ Setup Prerequisites Required</h3>
-                <p style={{ color: 'var(--text-secondary)', margin: '8px 0 0 0', fontSize: '0.9rem' }}>
-                  {!walletConnected ? "Please connect your Lace Wallet in the Wallet Hub." : "Please deploy the Compact contract in the ZK Deployer tab."}
-                </p>
-              </div>
-            )}
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '30px', opacity: (walletConnected && contractDeployed) ? 1 : 0.4, pointerEvents: (walletConnected && contractDeployed) ? 'auto' : 'none' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                <section style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px' }}>
-                  <h2 style={{ fontSize: '1.25rem', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px', color: '#fafafa' }}><Database className="w-5 h-5" /> Auction Registry</h2>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <div style={{ background: 'rgba(0,0,0,0.3)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>BLIND COMMITTED BIDS</span>
-                      <div style={{ fontSize: '1.8rem', fontWeight: 'bold' }}>{ledger.bid_commitments} bids</div>
-                    </div>
-                    <div style={{ background: 'rgba(0,0,0,0.3)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>ACTIVE AUCTION PHASE</span>
-                      <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: 'white', marginTop: '4px' }}>{ledger.phase}</div>
-                    </div>
-                  </div>
-                </section>
-              </div>
-
-              <div>
-                <section style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px' }}>
-                  <h2 style={{ fontSize: '1.25rem', marginBottom: '16px', color: '#fafafa', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Gavel className="w-5 h-5" /> Submit Blind Bid
-                  </h2>
-                  <div style={{ marginBottom: '16px' }}>
-                    <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Your Private Bid (tNIGHT)</label>
-                    <input 
-                      type="number" 
-                      value={formValues.blind_bid} 
-                      onChange={e => setFormValues({ ...formValues, blind_bid: Number(e.target.value) })}
-                    />
-                  </div>
-                  <div style={{ marginBottom: '20px' }}>
-                    <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Private Bid Salt (Secret)</label>
-                    <input 
-                      type="text" 
-                      value={formValues.bidder_salt} 
-                      onChange={e => setFormValues({ ...formValues, bidder_salt: e.target.value })}
-                    />
-                  </div>
-                  <button onClick={submitBlindBid} disabled={isProving}>
-                    {isProving ? "Hashing blind bid..." : "Commit Blind Bid"}
-                  </button>
-
-                  {isProving && (
-                    <div style={{ marginTop: '16px', padding: '12px', background: 'rgba(255,255,255,0.05)', border: '1px dashed #ffffff', borderRadius: '8px', fontSize: '0.8rem' }}>
-                      {proofSteps.map((step, idx) => (
-                        <div key={idx} style={{ padding: '3px 0', color: idx === provingStep ? 'white' : 'var(--text-secondary)', opacity: idx <= provingStep ? 1 : 0.4 }}>
-                          {idx < provingStep ? '✓' : '●'} {step}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </section>
+      {activeTab === "home" ? (
+        <main id="content" tabIndex={-1} className="landing">
+          <section className="hero">
+            <div className="hero-copy">
+              <p className="eyebrow">Blind NFT art auction</p>
+              <h1 id="page-title" tabIndex={-1}>
+                The bid is yours.
+                <br />
+                <em>Until the reveal.</em>
+              </h1>
+              <p className="intro">
+                A sealed-bid workspace for art auctions on Midnight. Commit a
+                bid without publishing its amount during bidding, and keep the
+                original secrets for the reveal.
+              </p>
+              <div className="hero-actions">
+                <a className="button-link" href="#dashboard">
+                  Enter bidding room →
+                </a>
+                <a href="#privacy">Understand the privacy model</a>
               </div>
             </div>
-          </div>
-        )}
-
-        {activeTab === 'deployer' && (
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '30px' }}>
-            <h2 style={{ fontSize: '1.4rem', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', color: '#fafafa' }}>
-              <Cpu className="w-6 h-6" /> ZK Blind Art Auction Deployer
-            </h2>
-            {contractDeployed ? (
-              <p style={{ color: '#10b981' }}>Deployed Preview Address: {contractAddress}</p>
-            ) : (
-              <button onClick={deployContractAction} disabled={isDeploying || !walletConnected}>
-                {isDeploying ? "Deploying..." : "Compile & Deploy Contract"}
-              </button>
-            )}
-
-            {isDeploying && (
-              <div style={{ marginTop: '16px', padding: '12px', background: 'rgba(255, 255, 255, 0.05)', border: '1px dashed #ffffff', borderRadius: '8px', fontSize: '0.8rem' }}>
-                {deploySteps.map((step, idx) => (
-                  <div key={idx} style={{ padding: '3px 0', color: idx === deployStep ? 'white' : 'var(--text-secondary)', opacity: idx <= deployStep ? 1 : 0.4 }}>
-                    {idx < deployStep ? '✓' : '●'} {step}
-                  </div>
-                ))}
+            <figure className="auction-art">
+              <div className="fold fold-one"></div>
+              <div className="fold fold-two"></div>
+              <div className="fold fold-three"></div>
+              <figcaption>
+                A study in concealment · illustrative artwork, not an auction
+                lot
+              </figcaption>
+            </figure>
+          </section>
+          <section
+            className="project-details"
+            aria-label="How the project works"
+          >
+            <article>
+              <span className="eyebrow">Commit</span>
+              <h2>A sealed intention.</h2>
+              <p>Publish a commitment derived from your private bid inputs.</p>
+            </article>
+            <article>
+              <span className="eyebrow">Reveal</span>
+              <h2>A deliberate disclosure.</h2>
+              <p>
+                The contract verifies the original inputs and discloses the
+                amount in the reveal phase.
+              </p>
+            </article>
+            <article>
+              <span className="eyebrow">Close</span>
+              <h2>A public outcome.</h2>
+              <p>
+                The administrator closes the auction; the winning key and
+                highest bid remain public.
+              </p>
+            </article>
+          </section>
+          <aside className="scope-note">
+            <strong>Before you begin</strong>
+            <p>
+              This interface submits bid commitments only. It does not list an
+              authenticated artwork, transfer an NFT, escrow funds, or provide
+              reveal and auction-administration controls.
+            </p>
+          </aside>
+        </main>
+      ) : (
+        <div className="workspace">
+          <nav className="workspace-nav" aria-label="Workspace pages">
+            <span className="eyebrow">Workspace</span>
+            {Object.entries(pageNames).map(([route, label]) => (
+              <a
+                key={route}
+                href={"#" + route}
+                aria-current={activeTab === route ? "page" : undefined}
+              >
+                {label}
+              </a>
+            ))}
+            <p>Midnight {RUNTIME.networkId}</p>
+          </nav>
+          <main id="content" tabIndex={-1} className="workspace-content">
+            <div className="page-heading">
+              <div>
+                <p className="eyebrow">Blind NFT art auction</p>
+                <h1 id="page-title" tabIndex={-1}>
+                  {pageNames[activeTab]}
+                </h1>
               </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'walletHub' && (
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '30px' }}>
-            <h2 style={{ fontSize: '1.4rem', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', color: '#fafafa' }}>
-              <Wallet className="w-6 h-6" /> Wallet Hub & Logs
-            </h2>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px', marginBottom: '30px' }}>
-              <div style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-color)', padding: '24px', borderRadius: '12px' }}>
-                <h3>Lace Account</h3>
-                {walletConnected ? (
-                  <div>
-                    <div style={{ fontFamily: 'monospace', wordBreak: 'break-all', fontSize: '0.85rem', marginBottom: '10px' }}>{walletAddress}</div>
-                    <button onClick={disconnectLace} style={{ width: 'auto', background: '#dc2626' }}>Disconnect</button>
-                  </div>
-                ) : (
-                  <button onClick={connectLace} style={{ width: 'auto' }}>Connect Wallet</button>
-                )}
-              </div>
-              <div style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-color)', padding: '24px', borderRadius: '12px' }}>
-                <h3>Get tNIGHT</h3>
-                <button onClick={requestFaucet} disabled={!walletConnected || faucetLoading}>
-                  {faucetLoading ? "Requesting..." : "Mint Faucet Tokens"}
+              <span className="session-status">
+                {walletConnected ? "Wallet connected" : "Wallet disconnected"}
+              </span>
+            </div>
+            {feedback && (
+              <div className="notice error" role="alert">
+                <strong>Action could not complete</strong>
+                <p>{feedback}</p>
+                <button className="secondary" onClick={() => setFeedback("")}>
+                  Dismiss message
                 </button>
               </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'privacy' && (
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '30px' }}>
-            <h2 style={{ fontSize: '1.4rem', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', color: '#fafafa' }}>
-              <Lock className="w-6 h-6" /> Zero-Knowledge Privacy Model
-            </h2>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px' }}>
-              <div style={{ background: 'rgba(16, 185, 129, 0.03)', border: '1px solid rgba(16, 185, 129, 0.15)', padding: '24px', borderRadius: '12px' }}>
-                <h3 style={{ color: '#10b981' }}>Can Learn:</h3>
-                <ul>
-                  <li>Number of bids committed.</li>
-                  <li>Final winning bid threshold when revealed.</li>
-                </ul>
+            )}
+            {runtimeIssue && (
+              <section className="notice error" role="alert">
+                <h2>Contract actions unavailable</h2>
+                <p>{runtimeIssue}</p>
+                <p>
+                  Restore this repository’s deployment configuration before
+                  using wallet or contract actions.
+                </p>
+                <button onClick={() => window.location.reload()}>
+                  Retry configuration
+                </button>
+              </section>
+            )}
+            {activeTab === "dashboard" && (
+              <>
+                <p className="page-intro">
+                  Create a commitment using your amount, salt, and bidder
+                  secret.
+                </p>
+                {!ready && (
+                  <div className="notice">
+                    <strong>Complete setup to submit</strong>
+                    <p>
+                      {!walletConnected
+                        ? "Connect a Midnight wallet, then review the contract configuration."
+                        : "A configured contract is required."}
+                    </p>
+                    <a href={!walletConnected ? "#walletHub" : "#deployer"}>
+                      {!walletConnected
+                        ? "Go to wallet"
+                        : "Review contract setup"}{" "}
+                      →
+                    </a>
+                  </div>
+                )}
+                {logs[0]?.status === "CONFIRMED ON MIDNIGHT" && (
+                  <div className="notice" role="status">
+                    <strong>Transaction confirmed</strong>
+                    <p>{logs[0].details}</p>
+                    <a href="#walletHub">
+                      View transaction in session activity →
+                    </a>
+                  </div>
+                )}
+                <div className="task-layout">
+                  <section className="form-panel">
+                    <h2>Seal your bid</h2>
+                    <p>
+                      Keep a secure copy of the exact amount, salt, and bidder
+                      secret before submitting. The reveal requires the same
+                      values; this page does not provide a reveal action.
+                    </p>
+                    <form
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        if (!ready || isProving) return;
+                        setFeedback("");
+                        setIsProving(true);
+                        try {
+                          await submitBlindBid();
+                        } finally {
+                          setIsProving(false);
+                        }
+                      }}
+                    >
+                      <fieldset disabled={!ready || isProving}>
+                        <legend className="sr-only">Seal your bid</legend>
+                        <label htmlFor="blind_bid">
+                          Bid amount (contract units)
+                          <input
+                            id="blind_bid"
+                            type="number"
+                            required
+                            min="0"
+                            max="4294967295"
+                            step="1"
+                            autoComplete="off"
+                            aria-describedby="blind_bid-hint"
+                            value={formValues.blind_bid}
+                            onChange={(e) =>
+                              setFormValues({
+                                ...formValues,
+                                blind_bid: Number(e.target.value),
+                              })
+                            }
+                          />
+                          <small id="blind_bid-hint">
+                            Whole number between 0 and 4294967295
+                          </small>
+                        </label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', background: 'rgba(99, 102, 241, 0.08)', borderRadius: '8px', border: '1px solid rgba(99, 102, 241, 0.2)', margin: '14px 0' }}>
+                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 8px #22c55e' }} />
+                          <span style={{ fontSize: '0.85rem', color: '#cbd5e1' }}>Shielded Bidder Identity Active</span>
+                        </div>
+                        <details style={{ marginBottom: '16px', fontSize: '0.8rem', color: '#94a3b8' }}>
+                          <summary style={{ cursor: 'pointer', padding: '4px 0', userSelect: 'none' }}>Advanced / Custom Salt & Secret</summary>
+                          <div style={{ marginTop: '8px' }}>
+                            <label htmlFor="bidder_salt">
+                              Private bid salt
+                              <input
+                                id="bidder_salt"
+                                type={showSecrets ? "text" : "password"}
+                                autoComplete="off"
+                                value={formValues.bidder_salt}
+                                onChange={(e) =>
+                                  setFormValues({
+                                    ...formValues,
+                                    bidder_salt: e.target.value,
+                                  })
+                                }
+                              />
+                            </label>
+                            <label htmlFor="bidder_secret">
+                              Bidder secret
+                              <input
+                                id="bidder_secret"
+                                type={showSecrets ? "text" : "password"}
+                                autoComplete="off"
+                                value={formValues.bidder_secret}
+                                onChange={(e) =>
+                                  setFormValues({
+                                    ...formValues,
+                                    bidder_secret: e.target.value,
+                                  })
+                                }
+                              />
+                            </label>
+                          </div>
+                        </details>
+                        <label className="reveal-control">
+                          <input
+                            type="checkbox"
+                            checked={showSecrets}
+                            onChange={(e) => setShowSecrets(e.target.checked)}
+                          />{" "}
+                          Show private inputs
+                        </label>
+                        <button type="submit">
+                          {isProving
+                            ? "Waiting for proof & confirmation…"
+                            : "Commit sealed bid"}
+                        </button>
+                      <button type="button" disabled={!walletConnected || !contractDeployed || isProving} onClick={async()=>{if(isProving)return;setIsProving(true);try{await submitBlindBid('revealBid');}finally{setIsProving(false);}}}>Reveal saved bid</button><p>Reveal only after the administrator opens the reveal phase. Use exactly the original amount, salt and bidder secret.</p></fieldset>
+                      {isProving && (
+                        <p role="status">
+                          Keep this page open while the wallet and network
+                          complete the request.
+                        </p>
+                      )}
+                    </form>
+                  </section>
+                  <aside className="context-panel">
+                    <h2>Auction record</h2>
+                    <p>
+                      Updated after a successful submission in this session. Not
+                      a live feed.
+                    </p>
+                    <dl>
+                      <dt>Committed bids</dt>
+                      <dd>
+                        {hasRead ? ledger.bid_commitments : "Not read yet"}
+                      </dd>
+                      <dt>Auction phase</dt>
+                      <dd>{hasRead ? ledger.phase : "Not read yet"}</dd>
+                    </dl>
+                    <div className="disclosure">
+                      <h3>Know what is public</h3>
+                      <p>
+                        Bidder public keys, commitments, auction phase, highest
+                        revealed bid, and winner are public. The reveal circuit
+                        discloses bid amounts, including losing bids.
+                      </p>
+                      <a href="#privacy">Read the full scope →</a>
+                    </div>
+                  </aside>
+                </div>
+              </>
+            )}
+            {activeTab === "walletHub" && (
+              <>
+                <div className="wallet-layout">
+                  <section className="form-panel">
+                    <h2>Your Midnight wallet</h2>
+                    <p>
+                      {laceDetected
+                        ? "A compatible wallet connector was detected."
+                        : "Install and unlock a compatible Midnight wallet, such as 1AM or Lace."}
+                    </p>
+                    {walletConnected ? (
+                      <>
+                        <dl>
+                          <dt>Address</dt>
+                          <dd className="address">{walletAddress}</dd>
+                          <dt>Balance at connection</dt>
+                          <dd>{walletBalance} tNIGHT</dd>
+                        </dl>
+                        <button className="secondary" onClick={disconnectLace}>
+                          Disconnect session
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        disabled={connectingWallet}
+                        onClick={connectLace}
+                      >
+                        {connectingWallet
+                          ? "Connecting…"
+                          : "Connect Midnight wallet"}
+                      </button>
+                    )}
+                  </section>
+                  <section className="context-panel">
+                    <h2>Test-network funding</h2>
+                    <p>
+                      The faucet opens in a new tab. Funding is not automatic;
+                      reconnect afterward to refresh the displayed balance.
+                    </p>
+                    <button
+                      className="secondary"
+                      disabled={!walletConnected}
+                      onClick={requestFaucet}
+                    >
+                      Open network faucet ↗
+                    </button>
+                  </section>
+                </div>
+                <section className="activity">
+                  <h2>Session activity</h2>
+                  {logs.length === 0 ? (
+                    <p>
+                      No activity yet. Wallet connections and transaction
+                      results will appear here.
+                    </p>
+                  ) : (
+                    <ol>
+                      {logs.map((log, index) => (
+                        <li key={index}>
+                          <time>{log.timestamp}</time>
+                          <strong>{log.status}</strong>
+                          <p>{log.details}</p>
+                          <code>{log.hash}</code>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </section>
+              </>
+            )}
+            {activeTab === 'deployer' && <OperatorSetup wallet={walletConnected ? connectedWallet : null} address={runtimeIssue ? null : contractAddress} />}
+            {activeTab === "deployer" && (
+              <section className="form-panel setup-panel">
+                <h2>Contract configuration</h2>
+                <p>
+                  This workspace uses its own contract on Midnight{" "}
+                  {RUNTIME.networkId}. A loaded address is configuration
+                  evidence, not a fresh check of chain state.
+                </p>
+                <dl>
+                  <dt>Configured address</dt>
+                  <dd className="address">
+                    {contractAddress || "No address configured"}
+                  </dd>
+                </dl>
+                {!contractDeployed && (
+                  <>
+                    <p>
+                      Deployment is a wallet-approved network transaction.
+                      Connect your wallet first.
+                    </p>
+                    <button
+                      disabled={
+                        !walletConnected || isDeploying
+                      }
+                      onClick={deployContractAction}
+                    >
+                      {isDeploying
+                        ? "Waiting for deployment confirmation…"
+                        : "Deploy contract"}
+                    </button>
+                  </>
+                )}
+                {isDeploying && (
+                  <p role="status">
+                    Waiting for the wallet and network. Do not close this page.
+                  </p>
+                )}
+              </section>
+            )}
+            {activeTab === "privacy" && (
+              <div className="privacy-layout">
+                <section className="form-panel">
+                  <span className="eyebrow">Public surface</span>
+                  <h2>What the contract reveals</h2>
+                  <p>
+                    Bidder public keys, commitments, auction phase, highest
+                    revealed bid, and winner are public. The reveal circuit
+                    discloses bid amounts, including losing bids.
+                  </p>
+                </section>
+                <section className="context-panel">
+                  <span className="eyebrow">Private inputs</span>
+                  <h2>Where privacy stops</h2>
+                  <p>
+                    Amounts are hidden during the commitment phase, not
+                    permanently. Keep your salt and bidder secret safe. Wallet
+                    and transaction metadata may still be visible.
+                  </p>
+                </section>
+                <aside className="scope-note">
+                  <strong>Product scope</strong>
+                  <p>
+                    This interface submits bid commitments only. It does not
+                    list an authenticated artwork, transfer an NFT, escrow
+                    funds, or provide reveal and auction-administration
+                    controls.
+                  </p>
+                  <p>
+                    Use test-network credentials only. Do not enter a wallet
+                    recovery phrase or reuse secrets from another service.
+                  </p>
+                </aside>
               </div>
-              <div style={{ background: 'rgba(239, 68, 68, 0.03)', border: '1px solid rgba(239, 68, 68, 0.15)', padding: '24px', borderRadius: '12px' }}>
-                <h3 style={{ color: '#f87171' }}>Cannot Learn:</h3>
-                <ul>
-                  <li>Any losing bid values.</li>
-                  <li>Bidder salts or transaction parameters.</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
+            )}
+          </main>
+        </div>
+      )}
+      <footer>
+        <span>Sealed / Auction</span>
+        <span>Midnight · {RUNTIME.networkId} · Experimental workspace</span>
+        <a href="#privacy">Privacy & limitations</a>
+      </footer>
     </div>
   );
 }
